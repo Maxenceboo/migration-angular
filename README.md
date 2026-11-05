@@ -9,6 +9,50 @@ Ce système pour **Claude Code** automatise la migration d'éléments Angular de
 
 ---
 
+## 📊 Schéma de Décision (Workflow)
+
+```mermaid
+flowchart TD
+    START(["/migrate &lt;chemin_source&gt;"]) --> CHECK_SRC{"Le fichier source<br/>existe-t-il ?"}
+    
+    CHECK_SRC -- Non --> ERR_SRC["❌ Erreur : Fichier source introuvable"]
+    CHECK_SRC -- Oui --> CHECK_EXISTS{"Existe déjà<br/>dans le projet cible ?"}
+    
+    CHECK_EXISTS -- Oui --> ASK_OVERWRITE{"Demande utilisateur :<br/>Écraser le fichier existant ?"}
+    ASK_OVERWRITE -- Non --> STOP_USER["🛑 Migration annulée par l'utilisateur"]
+    ASK_OVERWRITE -- Oui --> CHECK_TYPE{"Type d'entité ?"}
+    CHECK_EXISTS -- Non --> CHECK_TYPE
+    
+    %% BRANCHE B : SERVICES ET NON-COMPOSANTS
+    CHECK_TYPE -- "Service / Guard / Model / Pipe" --> SRV_ANA["🔍 service-analyzer<br/>(Lecture seule : 0 modification)<br/>• Analyse constructeur pour inject<br/>• Analyse flux RxJS et types"]
+    SRV_ANA --> SRV_BUILD["⚡ service-builder<br/>(Écriture &amp; Validation)<br/>• Crée dossier cible<br/>• Écrit fichier modernisé<br/>• Valide avec npx ng build"]
+    SRV_BUILD --> SUCCESS_SRV(["✅ Succès : Service migré"])
+    
+    %% BRANCHE A : COMPOSANTS
+    CHECK_TYPE -- "Composant (*.component.ts)" --> DEP_CHECK["🕵️ dependency-detector<br/>(Vérification préalable des dépendances)"]
+    DEP_CHECK --> CHECK_DEPS{"Toutes dépendances prêtes ?<br/>• Enfants &lt;app-...&gt;<br/>• Imports locaux"}
+    
+    CHECK_DEPS -- "Non (au moins 1 manquante)" --> STOP_DEPS["🛑 Arrêt strict : Dépendances manquantes<br/>(Zéro fichier créé sur le disque)"]
+    
+    CHECK_DEPS -- "Oui (ou composant feuille)" --> SCSS_COPY["🎨 Copie SCSS via bash<br/>+ Conversion @import vers @use (varsDs)"]
+    SCSS_COPY --> COMP_ANA["🔍 migration-analyzer<br/>(Lecture seule : 0 modification)<br/>• Analyse TS + HTML + SCSS<br/>• Pas de signaux, OnPush/Eager<br/>• Plan de modernisation"]
+    COMP_ANA --> COMP_BUILD["🔨 component-builder<br/>(Écriture &amp; Validation)<br/>• Écrit .ts et .html<br/>• Sandbox (5 instances en haut de page)<br/>• Valide avec npx ng build"]
+    COMP_BUILD --> SUCCESS_COMP(["✅ Succès : Composant migré + Rapport"])
+
+    %% Styles
+    classDef stop fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#c62828;
+    classDef success fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#2e7d32;
+    classDef agent fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1;
+    classDef decision fill:#fff8e1,stroke:#f57f17,stroke-width:2px,color:#e65100;
+    
+    class ERR_SRC,STOP_USER,STOP_DEPS stop;
+    class SUCCESS_SRV,SUCCESS_COMP success;
+    class SRV_ANA,SRV_BUILD,DEP_CHECK,SCSS_COPY,COMP_ANA,COMP_BUILD agent;
+    class CHECK_SRC,CHECK_EXISTS,ASK_OVERWRITE,CHECK_TYPE,CHECK_DEPS decision;
+```
+
+---
+
 ## 🔀 Branching Spécialisé : Équipe Composants vs Équipe Services
 
 L'orchestrateur détecte automatiquement le type d'artefact et mobilise l'équipe d'agents dédiée avec une stricte séparation entre **Analyse (Lecture seule, 0 modification)** et **Reconstruction (Écriture & Build)** :
@@ -86,6 +130,20 @@ Utilisateur
 │   └── migrate-scss.js             # 🎨 Utilitaire de conversion SCSS (@import -> @use varsDs)
 └── README.md
 ```
+
+---
+
+## 🧪 Démonstrateur Sandbox & Validation de Build
+
+Pour chaque composant migré :
+1. **Mise à jour de `MigrationSandboxComponent`** (`src/app/migration-sandbox/migration-sandbox.ts` et `.html`) :
+   - Au moins **5 instances différenciantes** ajoutées en haut de page.
+   - Utilisation des vrais constructeurs positionnels (`new SelectOptions(...)`, `new LookupOptions(...)`) — **jamais de `as unknown as XxxOptions`**.
+2. **Validation stricte par `npx ng build`** :
+   - Exécution de `npx ng build` (jamais `npm start`).
+   - Correction automatique et itération jusqu'à compilation réussie (`Application bundle generation complete`).
+3. **Rapport final structuré** :
+   - Composants migrés, services injectés via `inject()`, statut du build, rapport SCSS détaillé.
 
 ---
 
