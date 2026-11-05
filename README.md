@@ -11,45 +11,88 @@ Ce système pour **Claude Code** automatise la migration d'éléments Angular de
 
 ## 📊 Schéma de Décision (Workflow)
 
+![Schéma de Décision Multi-Agents](decision-tree.png)
+
+<details>
+<summary><b>📋 Afficher le schéma en version texte (ASCII)</b></summary>
+
+```text
+/migrate <chemin_source>
+   │
+   ▼
+[ Fichier source existe ? ] ────(Non)────► [ ❌ Erreur : Fichier source introuvable ]
+   │ (Oui)
+   ▼
+[ Existe déjà en cible ? ] ─────(Oui)────► [ Écraser ? ] ────(Non)────► [ 🛑 Annulé par l'utilisateur ]
+   │ (Non)                                     │ (Oui)
+   └─────────────────────┬─────────────────────┘
+                         ▼
+             [ Quel type d'entité ? ]
+                         │
+        ┌────────────────┴────────────────────────┐
+        ▼                                         ▼
+  [ CAS A : COMPOSANT ]                 [ CAS B : SERVICE / AUTRE ]
+        │                                         │
+        ▼                                         ▼
+  [ 1. dependency-detector ]            [ 1. service-analyzer ]
+  (Scan enfants & imports)              (Lecture seule : 0 modification)
+        │                               • Analyse constructeur pour inject()
+        ▼                               • Analyse flux RxJS et types
+  [ Dépendances prêtes ? ]                        │
+        │                                         ▼
+        ├─(Non)─► [ 🛑 ARRÊT STRICT ]   [ 2. service-builder ]
+        │         (Dépendances manquantes,        • Crée dossier cible (mkdir -p)
+        │          0 fichier créé)                • Écrit le fichier modernisé
+        ▼ (Oui)                                   • Valide avec npx ng build
+  [ 2. Copie SCSS via bash ]                      │
+    + script @import -> @use                      ▼
+        │                               [ ✅ SUCCÈS : SERVICE MIGRÉ ]
+        ▼
+  [ 3. migration-analyzer ]
+  (Lecture seule : 0 modification)
+  • Plan TS + HTML + SCSS
+  • Pas de signaux, OnPush/Eager
+        │
+        ▼
+  [ 4. component-builder ]
+  • Écrit .component.ts & .html
+  • Sandbox (5 instances en haut)
+  • Valide avec npx ng build
+        │
+        ▼
+  [ ✅ SUCCÈS : COMPOSANT MIGRÉ + RAPPORT ]
+```
+
+</details>
+
+<details>
+<summary><b>📊 Code source Mermaid</b></summary>
+
 ```mermaid
 flowchart TD
-    START(["/migrate &lt;chemin_source&gt;"]) --> CHECK_SRC{"Le fichier source<br/>existe-t-il ?"}
+    Start["/migrate chemin_source"] --> CheckSource{"Fichier source existe ?"}
+    CheckSource -- Non --> ErrSource["Erreur : Fichier introuvable"]
+    CheckSource -- Oui --> CheckTarget{"Existe deja en cible ?"}
     
-    CHECK_SRC -- Non --> ERR_SRC["❌ Erreur : Fichier source introuvable"]
-    CHECK_SRC -- Oui --> CHECK_EXISTS{"Existe déjà<br/>dans le projet cible ?"}
+    CheckTarget -- Oui --> AskOverwrite{"Ecraser en cible ?"}
+    AskOverwrite -- Non --> AbortUser["Arret : Annule par utilisateur"]
+    AskOverwrite -- Oui --> CheckType{"Type d entite ?"}
+    CheckTarget -- Non --> CheckType
     
-    CHECK_EXISTS -- Oui --> ASK_OVERWRITE{"Demande utilisateur :<br/>Écraser le fichier existant ?"}
-    ASK_OVERWRITE -- Non --> STOP_USER["🛑 Migration annulée par l'utilisateur"]
-    ASK_OVERWRITE -- Oui --> CHECK_TYPE{"Type d'entité ?"}
-    CHECK_EXISTS -- Non --> CHECK_TYPE
+    CheckType -- "Service / Guard / Model / Pipe" --> SrvAnalyzer["1. service-analyzer (Lecture seule)"]
+    SrvAnalyzer --> SrvBuilder["2. service-builder (Ecriture TS + Build)"]
+    SrvBuilder --> SrvDone["Succes : Service migre"]
     
-    %% BRANCHE B : SERVICES ET NON-COMPOSANTS
-    CHECK_TYPE -- "Service / Guard / Model / Pipe" --> SRV_ANA["🔍 service-analyzer<br/>(Lecture seule : 0 modification)<br/>• Analyse constructeur pour inject<br/>• Analyse flux RxJS et types"]
-    SRV_ANA --> SRV_BUILD["⚡ service-builder<br/>(Écriture &amp; Validation)<br/>• Crée dossier cible<br/>• Écrit fichier modernisé<br/>• Valide avec npx ng build"]
-    SRV_BUILD --> SUCCESS_SRV(["✅ Succès : Service migré"])
-    
-    %% BRANCHE A : COMPOSANTS
-    CHECK_TYPE -- "Composant (*.component.ts)" --> DEP_CHECK["🕵️ dependency-detector<br/>(Vérification préalable des dépendances)"]
-    DEP_CHECK --> CHECK_DEPS{"Toutes dépendances prêtes ?<br/>• Enfants &lt;app-...&gt;<br/>• Imports locaux"}
-    
-    CHECK_DEPS -- "Non (au moins 1 manquante)" --> STOP_DEPS["🛑 Arrêt strict : Dépendances manquantes<br/>(Zéro fichier créé sur le disque)"]
-    
-    CHECK_DEPS -- "Oui (ou composant feuille)" --> SCSS_COPY["🎨 Copie SCSS via bash<br/>+ Conversion @import vers @use (varsDs)"]
-    SCSS_COPY --> COMP_ANA["🔍 migration-analyzer<br/>(Lecture seule : 0 modification)<br/>• Analyse TS + HTML + SCSS<br/>• Pas de signaux, OnPush/Eager<br/>• Plan de modernisation"]
-    COMP_ANA --> COMP_BUILD["🔨 component-builder<br/>(Écriture &amp; Validation)<br/>• Écrit .ts et .html<br/>• Sandbox (5 instances en haut de page)<br/>• Valide avec npx ng build"]
-    COMP_BUILD --> SUCCESS_COMP(["✅ Succès : Composant migré + Rapport"])
-
-    %% Styles
-    classDef stop fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#c62828;
-    classDef success fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#2e7d32;
-    classDef agent fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1;
-    classDef decision fill:#fff8e1,stroke:#f57f17,stroke-width:2px,color:#e65100;
-    
-    class ERR_SRC,STOP_USER,STOP_DEPS stop;
-    class SUCCESS_SRV,SUCCESS_COMP success;
-    class SRV_ANA,SRV_BUILD,DEP_CHECK,SCSS_COPY,COMP_ANA,COMP_BUILD agent;
-    class CHECK_SRC,CHECK_EXISTS,ASK_OVERWRITE,CHECK_TYPE,CHECK_DEPS decision;
+    CheckType -- "Composant" --> DepDetector["1. dependency-detector"]
+    DepDetector --> CheckDeps{"Dependances pretes ?"}
+    CheckDeps -- Non --> StopDeps["Arret : Dependances manquantes (0 fichier ecrit)"]
+    CheckDeps -- Oui --> CopyScss["2. Copie SCSS via bash + conversion @use"]
+    CopyScss --> CompAnalyzer["3. migration-analyzer (Lecture seule)"]
+    CompAnalyzer --> CompBuilder["4. component-builder (Ecriture, Sandbox, Build)"]
+    CompBuilder --> CompDone["Succes : Composant migre + Rapport"]
 ```
+
+</details>
 
 ---
 
@@ -61,47 +104,6 @@ L'orchestrateur détecte automatiquement le type d'artefact et mobilise l'équip
 | :--- | :--- | :--- | :--- |
 | **Composant** (`*.component.ts`) | `@Component` | 🕵️ `dependency-detector`<br>🔍 `migration-analyzer` (`analyze-migration`) *(Ne modifie rien)* | 🔨 `component-builder` (`rebuild-component`) : TS + HTML, Sandbox (5 instances), SCSS `@use`, `npx ng build`. |
 | **Service & Logique** (`*.service.ts`, `*.guard.ts`, etc.) | `@Injectable`, `CanActivate`, etc. | 🔍 `service-analyzer` (`analyze-service`) *(Ne modifie rien, juste analyse)* | ⚡ `service-builder` (`rebuild-service`) : Écriture TS modernisé, `npx ng build`. *(Pas de SCSS, pas de template, pas de Sandbox)* |
-
----
-
-## 🏛️ Hiérarchie Commande ➔ Orchestrateur ➔ Sous-Agents & Skills
-
-```text
-Utilisateur
-  │
-  ▼
-[ Commande : /migrate <chemin_source> ]
-  │
-  ▼
-[ 🎩 Agent ORCHESTRATEUR (orchestrator.md) ]
-  ├── 1. Valide le chemin source & vérifie l'existence en cible (demande d'écraser ?)
-  │
-  ├── 2. Aiguillage selon le type de fichier :
-  │      │
-  │      ├─► [ CAS A : COMPOSANT (*.component.ts) ] ➔ Équipe Composant
-  │      │   │
-  │      │   ├── 🕵️ Sous-Agent : dependency-detector (scan enfants + imports, arrêt strict)
-  │      │   ├── 🎨 Copie SCSS via bash + conversion @import ➔ @use (varsDs)
-  │      │   ├── 🔍 Sous-Agent : migration-analyzer [LECTURE SEULE : 0 MODIFICATION]
-  │      │   │   • Produit le plan TS + HTML + SCSS (No signals, Eager/OnPush, base classe override)
-  │      │   └── 🔨 Sous-Agent : component-builder [ÉCRITURE & VALIDATION]
-  │      │       • Génère .component.ts et .component.html
-  │      │       • Met à jour MigrationSandboxComponent (5 instances en haut de page)
-  │      │       • Valide avec npx ng build & produit le rapport
-  │      │
-  │      └─► [ CAS B : SERVICE / MODEL / GUARD / PIPE ] ➔ Équipe Service
-  │          │
-  │          ├── 🔍 Sous-Agent : service-analyzer [LECTURE SEULE : 0 MODIFICATION]
-  │          │   • Analyse les injections du constructeur (vers inject)
-  │          │   • Analyse les signatures RxJS, méthodes et types
-  │          │   • Produit le récapitulatif d'analyse sans toucher au disque
-  │          │
-  │          └── ⚡ Sous-Agent : service-builder [ÉCRITURE & VALIDATION]
-  │              • ⏭️ Aucun SCSS, aucun template HTML, aucune Sandbox
-  │              • Recrée le dossier cible (mkdir -p)
-  │              • Écrit le fichier TypeScript modernisé (inject, Injectable, CanActivateFn, etc.)
-  │              • Valide la compilation avec npx ng build
-```
 
 ---
 
